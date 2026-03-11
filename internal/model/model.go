@@ -35,6 +35,12 @@ type NetworkStat struct {
 	TXBytes uint64 `json:"tx_bytes"`
 }
 
+// MetricsAvg CPU/Memory 历史平均值
+type MetricsAvg struct {
+	CPU map[int]*float64 // key=分钟数, nil=数据不足
+	Mem map[int]*float64
+}
+
 // AlertEvent 告警/恢复事件
 type AlertEvent struct {
 	Timestamp time.Time `json:"ts"`

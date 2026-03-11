@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -119,20 +120,54 @@ func TestAlerts(t *testing.T) {
 	}
 }
 
+func TestReportAvgQueryPassThrough(t *testing.T) {
+	snap := &model.Snapshot{
+		Timestamp: time.Now(),
+		Hostname:  "testhost",
+		CPU:       model.CPUStat{UsagePercent: 25.0},
+	}
+	var got []int
+	srv := newTestServerWithAvg(t, snap, func(windows []int) model.MetricsAvg {
+		got = append([]int(nil), windows...)
+		return model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
+	})
+	resp := doRequest(t, srv, "/report?avg=10080")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !reflect.DeepEqual(got, []int{10080}) {
+		t.Fatalf("avg windows = %v, want [10080]", got)
+	}
+}
+
 // --- helpers ---
 
 func newTestServer(t *testing.T, snap *model.Snapshot) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	store, _ := storage.New(dir)
-	return newTestServerWithStore(t, snap, store)
+	return newTestServerWithStoreAndAvg(t, snap, store, nil)
 }
 
 func newTestServerWithStore(t *testing.T, snap *model.Snapshot, store *storage.Storage) *httptest.Server {
 	t.Helper()
+	return newTestServerWithStoreAndAvg(t, snap, store, nil)
+}
+
+func newTestServerWithAvg(t *testing.T, snap *model.Snapshot, getAvg func([]int) model.MetricsAvg) *httptest.Server {
+	t.Helper()
+	dir := t.TempDir()
+	store, _ := storage.New(dir)
+	return newTestServerWithStoreAndAvg(t, snap, store, getAvg)
+}
+
+func newTestServerWithStoreAndAvg(t *testing.T, snap *model.Snapshot, store *storage.Storage, getAvg func([]int) model.MetricsAvg) *httptest.Server {
+	t.Helper()
 	engine := rule.NewEngine(nil)
 	getSnap := func() *model.Snapshot { return snap }
-	srv := httpapi.NewServer("127.0.0.1:0", getSnap, engine, store, 7)
+	srv := httpapi.NewServer("127.0.0.1:0", getSnap, getAvg, engine, store, 7)
 	return httptest.NewServer(srv.Handler())
 }
 

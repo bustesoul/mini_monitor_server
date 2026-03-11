@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,15 +12,15 @@ import (
 )
 
 // TextReport 生成文本格式报告
-func TextReport(snap *model.Snapshot, firingRules []string, historyDays int, store *storage.Storage) string {
+func TextReport(snap *model.Snapshot, firingRules []string, historyDays int, store *storage.Storage, windows []int, avg model.MetricsAvg) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Host: %s\n", snap.Hostname)
 	fmt.Fprintf(&b, "Time: %s\n\n", snap.Timestamp.UTC().Format("2006-01-02 15:04:05 UTC"))
 
 	b.WriteString("System\n")
-	fmt.Fprintf(&b, "  CPU: %.1f%%\n", snap.CPU.UsagePercent)
-	fmt.Fprintf(&b, "  Memory: %.1f%%\n", snap.Memory.UsedPercent)
+	fmt.Fprintf(&b, "  CPU: %.1f%%%s\n", snap.CPU.UsagePercent, formatAvgSuffix(windows, avg.CPU))
+	fmt.Fprintf(&b, "  Memory: %.1f%%%s\n", snap.Memory.UsedPercent, formatAvgSuffix(windows, avg.Mem))
 	for _, d := range snap.Disks {
 		fmt.Fprintf(&b, "  Disk %s: %.1f%% (%s / %s)\n",
 			d.Mount, d.UsedPercent,
@@ -46,23 +47,46 @@ func TextReport(snap *model.Snapshot, firingRules []string, historyDays int, sto
 	return b.String()
 }
 
+func formatAvgSuffix(windows []int, vals map[int]*float64) string {
+	if len(windows) == 0 || len(vals) == 0 {
+		return ""
+	}
+	sorted := make([]int, len(windows))
+	copy(sorted, windows)
+	sort.Ints(sorted)
+
+	var parts []string
+	for _, w := range sorted {
+		if v, ok := vals[w]; ok && v != nil {
+			parts = append(parts, fmt.Sprintf("%dm: %.1f%%", w, *v))
+		} else {
+			parts = append(parts, fmt.Sprintf("%dm: --", w))
+		}
+	}
+	return " [" + strings.Join(parts, ", ") + "]"
+}
+
 // JSONReport 生成 JSON 格式报告
 type JSONReportData struct {
 	Host              string              `json:"host"`
 	Time              string              `json:"time"`
 	CPUPercent        float64             `json:"cpu_percent"`
 	MemoryPercent     float64             `json:"memory_percent"`
+	CPUAvg            map[string]*float64 `json:"cpu_avg"`
+	MemAvg            map[string]*float64 `json:"mem_avg"`
 	Disk              []model.DiskStat    `json:"disk"`
 	NetworkSinceStart []model.NetworkStat `json:"network_since_start"`
 	Alerts            []string            `json:"alerts"`
 }
 
-func JSONReport(snap *model.Snapshot, firingRules []string) ([]byte, error) {
+func JSONReport(snap *model.Snapshot, firingRules []string, windows []int, avg model.MetricsAvg) ([]byte, error) {
 	data := JSONReportData{
 		Host:              snap.Hostname,
 		Time:              snap.Timestamp.UTC().Format(time.RFC3339),
 		CPUPercent:        snap.CPU.UsagePercent,
 		MemoryPercent:     snap.Memory.UsedPercent,
+		CPUAvg:            buildAvgMap(windows, avg.CPU),
+		MemAvg:            buildAvgMap(windows, avg.Mem),
 		Disk:              snap.Disks,
 		NetworkSinceStart: snap.Networks,
 		Alerts:            firingRules,
@@ -77,6 +101,15 @@ func JSONReport(snap *model.Snapshot, firingRules []string) ([]byte, error) {
 		data.NetworkSinceStart = []model.NetworkStat{}
 	}
 	return json.MarshalIndent(data, "", "  ")
+}
+
+func buildAvgMap(windows []int, vals map[int]*float64) map[string]*float64 {
+	m := make(map[string]*float64, len(windows))
+	for _, w := range windows {
+		key := fmt.Sprintf("%dm", w)
+		m[key] = vals[w] // nil if absent
+	}
+	return m
 }
 
 func humanBytes(b uint64) string {

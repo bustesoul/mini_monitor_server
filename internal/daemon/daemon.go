@@ -15,6 +15,7 @@ import (
 	"mini_monitor_server/internal/collector"
 	"mini_monitor_server/internal/config"
 	"mini_monitor_server/internal/httpapi"
+	"mini_monitor_server/internal/metrics"
 	"mini_monitor_server/internal/model"
 	"mini_monitor_server/internal/notifier"
 	"mini_monitor_server/internal/rule"
@@ -33,6 +34,7 @@ type Daemon struct {
 	httpSrv    *httpapi.Server
 	tgBot      *telegram.Bot
 	state      *model.ServiceState
+	accum      *metricsAccumulator
 	mu         sync.RWMutex
 }
 
@@ -48,6 +50,7 @@ func New(cfg *config.Config) (*Daemon, error) {
 		collectors: collector.NewRegistry(),
 		notifiers:  notifier.NewRegistry(),
 		engine:     rule.NewEngine(cfg.Rules),
+		accum:      newMetricsAccumulator(store),
 	}
 
 	// 注册采集器
@@ -76,7 +79,7 @@ func New(cfg *config.Config) (*Daemon, error) {
 
 		// Telegram Bot 命令
 		if cfg.Notify.Telegram.CommandsEnabled {
-			d.tgBot = telegram.NewBot(bot, cfg, d.getSnapshot, d.engine, store)
+			d.tgBot = telegram.NewBot(bot, cfg, d.getSnapshot, d.getMetricsAvg, d.engine, store)
 		}
 	}
 
@@ -87,7 +90,7 @@ func New(cfg *config.Config) (*Daemon, error) {
 		store,
 	)
 
-	d.httpSrv = httpapi.NewServer(cfg.Server.Listen, d.getSnapshot, d.engine, store, cfg.Report.IncludeHistoryDays)
+	d.httpSrv = httpapi.NewServer(cfg.Server.Listen, d.getSnapshot, d.getMetricsAvg, d.engine, store, cfg.Report.IncludeHistoryDays)
 
 	return d, nil
 }
@@ -187,6 +190,9 @@ func (d *Daemon) collectAndEvaluate(ctx context.Context) {
 	events := d.engine.Evaluate(snap, now)
 	d.alertMgr.Process(ctx, events)
 
+	// 累加 CPU/Memory 到分钟累加器
+	d.accum.Record(snap.Timestamp, snap.CPU.UsagePercent, snap.Memory.UsedPercent)
+
 	// 检查重复提醒
 	d.alertMgr.CheckRepeat(ctx, d.engine.FiringRules())
 
@@ -213,6 +219,10 @@ func (d *Daemon) getSnapshot() *model.Snapshot {
 		return d.state.LastSnapshot
 	}
 	return nil
+}
+
+func (d *Daemon) getMetricsAvg(windows []int) model.MetricsAvg {
+	return metrics.ComputeAverages(d.store, windows, time.Now())
 }
 
 func (d *Daemon) setupDailyTimer() <-chan time.Time {
@@ -279,6 +289,7 @@ func (d *Daemon) CollectOnce(ctx context.Context) (*model.Snapshot, error) {
 }
 
 func (d *Daemon) shutdown() {
+	d.accum.Flush()
 	d.httpSrv.Stop()
 	if d.tgBot != nil {
 		d.tgBot.Stop()

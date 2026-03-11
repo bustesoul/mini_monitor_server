@@ -23,7 +23,7 @@ type Bot struct {
 	stopFn         context.CancelFunc
 }
 
-func NewBot(bot *tgbotapi.BotAPI, cfg *config.Config, getSnapshot func() *model.Snapshot, engine *rule.Engine, store *storage.Storage) *Bot {
+func NewBot(bot *tgbotapi.BotAPI, cfg *config.Config, getSnapshot func() *model.Snapshot, getMetricsAvg func([]int) model.MetricsAvg, engine *rule.Engine, store *storage.Storage) *Bot {
 	allowed := make(map[int64]bool)
 	for _, id := range cfg.Notify.Telegram.AllowedChatIDs {
 		if n, err := strconv.ParseInt(id, 10, 64); err == nil {
@@ -32,7 +32,7 @@ func NewBot(bot *tgbotapi.BotAPI, cfg *config.Config, getSnapshot func() *model.
 	}
 
 	reg := command.NewRegistry()
-	command.RegisterAll(reg, getSnapshot, engine, store, cfg)
+	command.RegisterAll(reg, getSnapshot, getMetricsAvg, engine, store, cfg)
 
 	return &Bot{
 		bot:            bot,

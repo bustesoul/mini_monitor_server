@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"mini_monitor_server/internal/metrics"
 	"mini_monitor_server/internal/model"
 	"mini_monitor_server/internal/report"
 	"mini_monitor_server/internal/rule"
@@ -16,22 +17,24 @@ import (
 )
 
 type Server struct {
-	addr        string
-	srv         *http.Server
-	mux         *http.ServeMux
-	getSnapshot func() *model.Snapshot
-	engine      *rule.Engine
-	store       *storage.Storage
-	historyDays int
+	addr          string
+	srv           *http.Server
+	mux           *http.ServeMux
+	getSnapshot   func() *model.Snapshot
+	getMetricsAvg func([]int) model.MetricsAvg
+	engine        *rule.Engine
+	store         *storage.Storage
+	historyDays   int
 }
 
-func NewServer(addr string, getSnapshot func() *model.Snapshot, engine *rule.Engine, store *storage.Storage, historyDays int) *Server {
+func NewServer(addr string, getSnapshot func() *model.Snapshot, getMetricsAvg func([]int) model.MetricsAvg, engine *rule.Engine, store *storage.Storage, historyDays int) *Server {
 	s := &Server{
-		addr:        addr,
-		getSnapshot: getSnapshot,
-		engine:      engine,
-		store:       store,
-		historyDays: historyDays,
+		addr:          addr,
+		getSnapshot:   getSnapshot,
+		getMetricsAvg: getMetricsAvg,
+		engine:        engine,
+		store:         store,
+		historyDays:   historyDays,
 	}
 
 	mux := http.NewServeMux()
@@ -86,10 +89,18 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	windows := s.parseAvgWindows(r)
+	var avg model.MetricsAvg
+	if s.getMetricsAvg != nil {
+		avg = s.getMetricsAvg(windows)
+	} else {
+		avg = model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
+	}
+
 	firing := s.engine.FiringRules()
 
 	if r.URL.Query().Get("format") == "json" {
-		data, err := report.JSONReport(snap, firing)
+		data, err := report.JSONReport(snap, firing, windows, avg)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -100,7 +111,11 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(report.TextReport(snap, firing, s.historyDays, s.store)))
+	w.Write([]byte(report.TextReport(snap, firing, s.historyDays, s.store, windows, avg)))
+}
+
+func (s *Server) parseAvgWindows(r *http.Request) []int {
+	return metrics.ParseWindows(r.URL.Query().Get("avg"), metrics.DefaultAvgWindows)
 }
 
 func (s *Server) handleDiskHistory(w http.ResponseWriter, r *http.Request) {

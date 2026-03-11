@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	stateFile      = "state.json"
-	diskHistFile   = "disk_history.ndjson"
-	netHistFile    = "net_history.ndjson"
-	alertsFile     = "alerts.ndjson"
+	stateFile       = "state.json"
+	diskHistFile    = "disk_history.ndjson"
+	netHistFile     = "net_history.ndjson"
+	alertsFile      = "alerts.ndjson"
+	metricsHistFile = "metrics_history.ndjson"
 )
 
 type Storage struct {
@@ -180,6 +181,43 @@ func (s *Storage) ReadAlerts(limit int) ([]model.AlertEvent, error) {
 	return all, nil
 }
 
+// --- metrics history ---
+
+type MetricsHistoryEntry struct {
+	Timestamp time.Time `json:"ts"`
+	CPU       float64   `json:"cpu"`
+	Mem       float64   `json:"mem"`
+}
+
+func (s *Storage) AppendMetricsHistory(cpu, mem float64, ts time.Time) error {
+	rec := MetricsHistoryEntry{Timestamp: ts, CPU: cpu, Mem: mem}
+	return s.appendNDJSON(metricsHistFile, rec)
+}
+
+func (s *Storage) ReadMetricsHistory(minutes int) ([]MetricsHistoryEntry, error) {
+	end := time.Now().UTC()
+	start := end.Add(-time.Duration(minutes) * time.Minute)
+	return s.ReadMetricsHistoryRange(start, end)
+}
+
+func (s *Storage) ReadMetricsHistoryRange(start, end time.Time) ([]MetricsHistoryEntry, error) {
+	start = start.UTC()
+	end = end.UTC()
+	var entries []MetricsHistoryEntry
+	err := s.readNDJSON(metricsHistFile, func(line []byte) error {
+		var e MetricsHistoryEntry
+		if err := json.Unmarshal(line, &e); err != nil {
+			return nil
+		}
+		e.Timestamp = e.Timestamp.UTC()
+		if !e.Timestamp.Before(start) && e.Timestamp.Before(end) {
+			entries = append(entries, e)
+		}
+		return nil
+	})
+	return entries, err
+}
+
 func (s *Storage) readNDJSON(filename string, fn func([]byte) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -207,7 +245,7 @@ func (s *Storage) readNDJSON(filename string, fn func([]byte) error) error {
 // CleanHistory 清理超过 keepDays 天的历史记录
 func (s *Storage) CleanHistory(keepDays int) {
 	cutoff := time.Now().AddDate(0, 0, -keepDays)
-	for _, file := range []string{diskHistFile, netHistFile, alertsFile} {
+	for _, file := range []string{diskHistFile, netHistFile, alertsFile, metricsHistFile} {
 		if err := s.cleanNDJSON(file, cutoff); err != nil {
 			slog.Warn("clean history failed", "file", file, "error", err)
 		}

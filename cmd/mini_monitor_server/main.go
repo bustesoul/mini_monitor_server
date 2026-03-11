@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"mini_monitor_server/internal/config"
 	"mini_monitor_server/internal/daemon"
+	"mini_monitor_server/internal/metrics"
 	"mini_monitor_server/internal/model"
 	"mini_monitor_server/internal/report"
 	"mini_monitor_server/internal/storage"
@@ -69,6 +71,7 @@ func daemonCmd() *cobra.Command {
 
 func reportCmd() *cobra.Command {
 	var jsonFormat bool
+	var avgFlag string
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Print current system report",
@@ -102,19 +105,23 @@ func reportCmd() *cobra.Command {
 				}
 			}
 
+			windows := metrics.ParseWindows(avgFlag, metrics.DefaultAvgWindows)
+			avg := metrics.ComputeAverages(store, windows, time.Now())
+
 			if jsonFormat {
-				data, err := report.JSONReport(snap, firingRules)
+				data, err := report.JSONReport(snap, firingRules, windows, avg)
 				if err != nil {
 					return err
 				}
 				fmt.Println(string(data))
 			} else {
-				fmt.Print(report.TextReport(snap, firingRules, cfg.Report.IncludeHistoryDays, nil))
+				fmt.Print(report.TextReport(snap, firingRules, cfg.Report.IncludeHistoryDays, nil, windows, avg))
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&jsonFormat, "json", false, "output in JSON format")
+	cmd.Flags().StringVar(&avgFlag, "avg", "1,15,60", "average windows in minutes (comma-separated)")
 	return cmd
 }
 
