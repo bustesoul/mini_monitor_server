@@ -1,0 +1,68 @@
+# HTTP listen address for local report and health endpoints.
+server:
+  listen: "127.0.0.1:18080"
+
+# Metric collection interval and CPU sampling window.
+collector:
+  interval: "60s"
+  cpu_sample_window: "2s"
+
+# Local state and history storage directory and retention days.
+storage:
+  dir: "/var/lib/mini_monitor_server"
+  keep_days: 90
+
+# Network interfaces to track and whether to reset counters on restart.
+network:
+  enabled: true
+  interfaces:
+    - "eth0"
+  reset_baseline_on_start: true
+  daily_rollup: true
+
+# Disk mounts to monitor and the daily snapshot time in HH:MM.
+disk:
+  enabled: true
+  mounts:
+    - "/"
+  sample_daily_at: "00:00"
+
+# Alert deduplication and repeat reminder intervals.
+alerts:
+  dedup_window: "30m"
+  repeat_interval: "6h"
+
+# Threshold rules; each rule needs a unique name, type, threshold, for, and severity.
+rules:
+  - name: "disk_root_high"
+    type: "disk_used_percent"
+    mount: "/"
+    threshold: 90
+    for: "5m"
+    severity: "critical"
+
+  - name: "memory_high"
+    type: "memory_used_percent"
+    threshold: 85
+    for: "10m"
+    severity: "warning"
+
+  - name: "cpu_high"
+    type: "cpu_used_percent"
+    threshold: 95
+    for: "3m"
+    severity: "warning"
+
+# Notification backends.
+notify:
+  # Telegram alert delivery and allowed command chat IDs.
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+    commands_enabled: true
+    allowed_chat_ids: []
+
+# Number of history days included in report output.
+report:
+  include_history_days: 7

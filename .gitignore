@@ -1,0 +1,17 @@
+# Binary
+mini_monitor_server
+
+.claude
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+
+# Go
+*.exe
+*.test
+*.out
+
+arch.md

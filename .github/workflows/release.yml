@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: meta
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if already released
+        id: check
+        run: |
+          if git rev-parse "refs/tags/${{ steps.meta.outputs.VERSION }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        if: steps.check.outputs.exists == 'false'
+        run: go test ./...
+
+      - name: Build
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.meta.outputs.VERSION }}"
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o build/amd64/mini_monitor_server ./cmd/mini_monitor_server
+          GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o build/arm64/mini_monitor_server ./cmd/mini_monitor_server
+
+      - name: Package
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.meta.outputs.VERSION }}"
+
+          for arch in amd64 arm64; do
+            dir="mini_monitor_server-${VERSION}-linux-${arch}"
+            mkdir -p "dist/${dir}"
+
+            cp "build/${arch}/mini_monitor_server"         "dist/${dir}/"
+            cp mini_monitor_server.example.yaml            "dist/${dir}/"
+            cp scripts/mini_monitor_server.service         "dist/${dir}/"
+            cp scripts/install.sh                          "dist/${dir}/"
+            chmod +x                                       "dist/${dir}/install.sh"
+            cp README.md                                   "dist/${dir}/"
+
+            tar -czf "dist/${dir}.tar.gz" -C dist "${dir}"
+          done
+
+      - name: Create Release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.VERSION }}
+          name: ${{ steps.meta.outputs.VERSION }}
+          generate_release_notes: true
+          files: dist/*.tar.gz

@@ -1,0 +1,14 @@
+[Unit]
+Description=mini_monitor_server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mini_monitor_server daemon -c /etc/mini_monitor_server.yaml
+Restart=always
+RestartSec=3
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
