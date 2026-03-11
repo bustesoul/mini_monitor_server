@@ -1,5 +1,5 @@
 # Binary
-mini_monitor_server
+/mini_monitor_server
 
 .claude
 
@@ -14,4 +14,4 @@ mini_monitor_server
 *.test
 *.out
 
-arch.md
+doc/
