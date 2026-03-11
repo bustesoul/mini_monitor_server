@@ -21,13 +21,13 @@ type Server struct {
 	srv           *http.Server
 	mux           *http.ServeMux
 	getSnapshot   func() *model.Snapshot
-	getMetricsAvg func([]int) model.MetricsAvg
+	getMetricsAvg func(time.Time, []int) model.MetricsAvg
 	engine        *rule.Engine
 	store         *storage.Storage
 	historyDays   int
 }
 
-func NewServer(addr string, getSnapshot func() *model.Snapshot, getMetricsAvg func([]int) model.MetricsAvg, engine *rule.Engine, store *storage.Storage, historyDays int) *Server {
+func NewServer(addr string, getSnapshot func() *model.Snapshot, getMetricsAvg func(time.Time, []int) model.MetricsAvg, engine *rule.Engine, store *storage.Storage, historyDays int) *Server {
 	s := &Server{
 		addr:          addr,
 		getSnapshot:   getSnapshot,
@@ -92,7 +92,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	windows := s.parseAvgWindows(r)
 	var avg model.MetricsAvg
 	if s.getMetricsAvg != nil {
-		avg = s.getMetricsAvg(windows)
+		avg = s.getMetricsAvg(snap.Timestamp, windows)
 	} else {
 		avg = model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
 	}

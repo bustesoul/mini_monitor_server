@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -23,7 +24,7 @@ type Bot struct {
 	stopFn         context.CancelFunc
 }
 
-func NewBot(bot *tgbotapi.BotAPI, cfg *config.Config, getSnapshot func() *model.Snapshot, getMetricsAvg func([]int) model.MetricsAvg, engine *rule.Engine, store *storage.Storage) *Bot {
+func NewBot(bot *tgbotapi.BotAPI, cfg *config.Config, getSnapshot func() *model.Snapshot, getMetricsAvg func(time.Time, []int) model.MetricsAvg, engine *rule.Engine, store *storage.Storage) *Bot {
 	allowed := make(map[int64]bool)
 	for _, id := range cfg.Notify.Telegram.AllowedChatIDs {
 		if n, err := strconv.ParseInt(id, 10, 64); err == nil {

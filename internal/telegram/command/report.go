@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"mini_monitor_server/internal/metrics"
 	"mini_monitor_server/internal/model"
@@ -13,7 +14,7 @@ import (
 
 type ReportCmd struct {
 	getSnapshot   func() *model.Snapshot
-	getMetricsAvg func([]int) model.MetricsAvg
+	getMetricsAvg func(time.Time, []int) model.MetricsAvg
 	engine        *rule.Engine
 }
 
@@ -28,7 +29,7 @@ func (c *ReportCmd) Execute(_ context.Context, args string) (string, error) {
 	windows := metrics.ParseWindows(args, metrics.DefaultAvgWindows)
 	var avg model.MetricsAvg
 	if c.getMetricsAvg != nil {
-		avg = c.getMetricsAvg(windows)
+		avg = c.getMetricsAvg(snap.Timestamp, windows)
 	} else {
 		avg = model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
 	}
@@ -37,7 +38,7 @@ func (c *ReportCmd) Execute(_ context.Context, args string) (string, error) {
 
 type CPUCmd struct {
 	getSnapshot   func() *model.Snapshot
-	getMetricsAvg func([]int) model.MetricsAvg
+	getMetricsAvg func(time.Time, []int) model.MetricsAvg
 }
 
 func (c *CPUCmd) Name() string        { return "cpu" }
@@ -51,7 +52,7 @@ func (c *CPUCmd) Execute(_ context.Context, args string) (string, error) {
 	result := fmt.Sprintf("CPU: %.1f%%", snap.CPU.UsagePercent)
 	windows := metrics.ParseWindows(args, nil)
 	if len(windows) > 0 && c.getMetricsAvg != nil {
-		avg := c.getMetricsAvg(windows)
+		avg := c.getMetricsAvg(snap.Timestamp, windows)
 		result += formatWindowValues(windows, avg.CPU)
 	}
 	return result, nil
@@ -59,7 +60,7 @@ func (c *CPUCmd) Execute(_ context.Context, args string) (string, error) {
 
 type MemCmd struct {
 	getSnapshot   func() *model.Snapshot
-	getMetricsAvg func([]int) model.MetricsAvg
+	getMetricsAvg func(time.Time, []int) model.MetricsAvg
 }
 
 func (c *MemCmd) Name() string        { return "mem" }
@@ -76,7 +77,7 @@ func (c *MemCmd) Execute(_ context.Context, args string) (string, error) {
 		humanBytes(snap.Memory.TotalBytes))
 	windows := metrics.ParseWindows(args, nil)
 	if len(windows) > 0 && c.getMetricsAvg != nil {
-		avg := c.getMetricsAvg(windows)
+		avg := c.getMetricsAvg(snap.Timestamp, windows)
 		result += formatWindowValues(windows, avg.Mem)
 	}
 	return result, nil

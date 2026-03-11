@@ -221,8 +221,8 @@ func (d *Daemon) getSnapshot() *model.Snapshot {
 	return nil
 }
 
-func (d *Daemon) getMetricsAvg(windows []int) model.MetricsAvg {
-	return metrics.ComputeAverages(d.store, windows, time.Now())
+func (d *Daemon) getMetricsAvg(base time.Time, windows []int) model.MetricsAvg {
+	return metrics.ComputeAverages(d.store, windows, base)
 }
 
 func (d *Daemon) setupDailyTimer() <-chan time.Time {

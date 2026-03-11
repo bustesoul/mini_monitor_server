@@ -127,7 +127,9 @@ func TestReportAvgQueryPassThrough(t *testing.T) {
 		CPU:       model.CPUStat{UsagePercent: 25.0},
 	}
 	var got []int
-	srv := newTestServerWithAvg(t, snap, func(windows []int) model.MetricsAvg {
+	var gotBase time.Time
+	srv := newTestServerWithAvg(t, snap, func(base time.Time, windows []int) model.MetricsAvg {
+		gotBase = base
 		got = append([]int(nil), windows...)
 		return model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
 	})
@@ -139,6 +141,9 @@ func TestReportAvgQueryPassThrough(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, []int{10080}) {
 		t.Fatalf("avg windows = %v, want [10080]", got)
+	}
+	if !gotBase.Equal(snap.Timestamp) {
+		t.Fatalf("avg base = %v, want %v", gotBase, snap.Timestamp)
 	}
 }
 
@@ -156,14 +161,14 @@ func newTestServerWithStore(t *testing.T, snap *model.Snapshot, store *storage.S
 	return newTestServerWithStoreAndAvg(t, snap, store, nil)
 }
 
-func newTestServerWithAvg(t *testing.T, snap *model.Snapshot, getAvg func([]int) model.MetricsAvg) *httptest.Server {
+func newTestServerWithAvg(t *testing.T, snap *model.Snapshot, getAvg func(time.Time, []int) model.MetricsAvg) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	store, _ := storage.New(dir)
 	return newTestServerWithStoreAndAvg(t, snap, store, getAvg)
 }
 
-func newTestServerWithStoreAndAvg(t *testing.T, snap *model.Snapshot, store *storage.Storage, getAvg func([]int) model.MetricsAvg) *httptest.Server {
+func newTestServerWithStoreAndAvg(t *testing.T, snap *model.Snapshot, store *storage.Storage, getAvg func(time.Time, []int) model.MetricsAvg) *httptest.Server {
 	t.Helper()
 	engine := rule.NewEngine(nil)
 	getSnap := func() *model.Snapshot { return snap }

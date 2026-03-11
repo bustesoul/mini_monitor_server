@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -106,7 +105,7 @@ func reportCmd() *cobra.Command {
 			}
 
 			windows := metrics.ParseWindows(avgFlag, metrics.DefaultAvgWindows)
-			avg := metrics.ComputeAverages(store, windows, time.Now())
+			avg := metrics.ComputeAverages(store, windows, snap.Timestamp)
 
 			if jsonFormat {
 				data, err := report.JSONReport(snap, firingRules, windows, avg)
