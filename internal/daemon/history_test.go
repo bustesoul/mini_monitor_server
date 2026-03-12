@@ -1,9 +1,14 @@
 package daemon
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"mini_monitor_server/internal/config"
+	"mini_monitor_server/internal/model"
 	"mini_monitor_server/internal/storage"
 )
 
@@ -43,5 +48,78 @@ func TestMetricsAccumulatorUsesSnapshotTimestampBucket(t *testing.T) {
 	}
 	if entries[1].CPU != 30 || entries[1].Mem != 40 {
 		t.Fatalf("second bucket = %+v, want cpu=30 mem=40", entries[1])
+	}
+}
+
+func TestHistoryDefaultDaysWiredFromConfigToHTTP(t *testing.T) {
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Listen: "127.0.0.1:0"},
+		Storage: config.StorageConfig{Dir: t.TempDir()},
+		History: config.HistoryConfig{DefaultDays: 2},
+	}
+
+	d, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	now := time.Now()
+	recentDisk := model.DiskStat{Mount: "/", UsedPercent: 40}
+	oldDisk := model.DiskStat{Mount: "/old", UsedPercent: 80}
+	if err := d.store.AppendDiskHistory(recentDisk, now.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("AppendDiskHistory(recent) error: %v", err)
+	}
+	if err := d.store.AppendDiskHistory(oldDisk, now.Add(-72*time.Hour)); err != nil {
+		t.Fatalf("AppendDiskHistory(old) error: %v", err)
+	}
+
+	recentNet := model.NetworkStat{Iface: "eth0", RXBytes: 100, TXBytes: 200}
+	oldNet := model.NetworkStat{Iface: "eth1", RXBytes: 300, TXBytes: 400}
+	if err := d.store.AppendNetHistory(recentNet, now.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("AppendNetHistory(recent) error: %v", err)
+	}
+	if err := d.store.AppendNetHistory(oldNet, now.Add(-72*time.Hour)); err != nil {
+		t.Fatalf("AppendNetHistory(old) error: %v", err)
+	}
+
+	srv := httptest.NewServer(d.httpSrv.Handler())
+	defer srv.Close()
+
+	diskResp, err := http.Get(srv.URL + "/history/disk")
+	if err != nil {
+		t.Fatalf("GET /history/disk error: %v", err)
+	}
+	defer diskResp.Body.Close()
+	if diskResp.StatusCode != http.StatusOK {
+		t.Fatalf("/history/disk status = %d, want 200", diskResp.StatusCode)
+	}
+	var diskEntries []storage.DiskHistoryEntry
+	if err := json.NewDecoder(diskResp.Body).Decode(&diskEntries); err != nil {
+		t.Fatalf("decode /history/disk error: %v", err)
+	}
+	if len(diskEntries) != 1 {
+		t.Fatalf("/history/disk entries = %d, want 1", len(diskEntries))
+	}
+	if diskEntries[0].Mount != recentDisk.Mount {
+		t.Fatalf("/history/disk mount = %q, want %q", diskEntries[0].Mount, recentDisk.Mount)
+	}
+
+	netResp, err := http.Get(srv.URL + "/history/net")
+	if err != nil {
+		t.Fatalf("GET /history/net error: %v", err)
+	}
+	defer netResp.Body.Close()
+	if netResp.StatusCode != http.StatusOK {
+		t.Fatalf("/history/net status = %d, want 200", netResp.StatusCode)
+	}
+	var netEntries []storage.NetHistoryEntry
+	if err := json.NewDecoder(netResp.Body).Decode(&netEntries); err != nil {
+		t.Fatalf("decode /history/net error: %v", err)
+	}
+	if len(netEntries) != 1 {
+		t.Fatalf("/history/net entries = %d, want 1", len(netEntries))
+	}
+	if netEntries[0].Iface != recentNet.Iface {
+		t.Fatalf("/history/net iface = %q, want %q", netEntries[0].Iface, recentNet.Iface)
 	}
 }

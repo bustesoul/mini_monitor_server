@@ -90,7 +90,7 @@ func New(cfg *config.Config) (*Daemon, error) {
 		store,
 	)
 
-	d.httpSrv = httpapi.NewServer(cfg.Server.Listen, d.getSnapshot, d.getMetricsAvg, d.engine, store, cfg.Report.IncludeHistoryDays)
+	d.httpSrv = httpapi.NewServer(cfg.Server.Listen, d.getSnapshot, d.getMetricsAvg, d.engine, store, cfg.History.DefaultDays)
 
 	return d, nil
 }

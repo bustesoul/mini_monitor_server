@@ -111,7 +111,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(report.TextReport(snap, firing, s.historyDays, s.store, windows, avg)))
+	w.Write([]byte(report.TextReport(snap, firing, windows, avg)))
 }
 
 func (s *Server) parseAvgWindows(r *http.Request) []int {

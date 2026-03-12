@@ -19,6 +19,8 @@ collector:
 storage:
   dir: "/tmp/test_monitor"
   keep_days: 30
+history:
+  default_days: 14
 network:
   enabled: true
   interfaces: ["eth0"]
@@ -51,6 +53,9 @@ notify:
 	if cfg.Storage.KeepDays != 30 {
 		t.Errorf("Storage.KeepDays = %d, want 30", cfg.Storage.KeepDays)
 	}
+	if cfg.History.DefaultDays != 14 {
+		t.Errorf("History.DefaultDays = %d, want 14", cfg.History.DefaultDays)
+	}
 	if len(cfg.Rules) != 1 {
 		t.Fatalf("len(Rules) = %d, want 1", len(cfg.Rules))
 	}
@@ -81,8 +86,8 @@ notify:
 	if cfg.Storage.KeepDays != 90 {
 		t.Errorf("default Storage.KeepDays = %d, want 90", cfg.Storage.KeepDays)
 	}
-	if cfg.Report.IncludeHistoryDays != 7 {
-		t.Errorf("default Report.IncludeHistoryDays = %d, want 7", cfg.Report.IncludeHistoryDays)
+	if cfg.History.DefaultDays != 7 {
+		t.Errorf("default History.DefaultDays = %d, want 7", cfg.History.DefaultDays)
 	}
 }
 

@@ -8,11 +8,10 @@ import (
 	"time"
 
 	"mini_monitor_server/internal/model"
-	"mini_monitor_server/internal/storage"
 )
 
 // TextReport 生成文本格式报告
-func TextReport(snap *model.Snapshot, firingRules []string, historyDays int, store *storage.Storage, windows []int, avg model.MetricsAvg) string {
+func TextReport(snap *model.Snapshot, firingRules []string, windows []int, avg model.MetricsAvg) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Host: %s\n", snap.Hostname)

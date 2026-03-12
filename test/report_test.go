@@ -25,7 +25,7 @@ func TestTextReport(t *testing.T) {
 	}
 
 	noAvg := model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
-	text := report.TextReport(snap, nil, 7, nil, nil, noAvg)
+	text := report.TextReport(snap, nil, nil, noAvg)
 
 	checks := []string{
 		"Host: s4442",
@@ -50,7 +50,7 @@ func TestTextReportWithAlerts(t *testing.T) {
 		Hostname:  "host1",
 	}
 	noAvg := model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
-	text := report.TextReport(snap, []string{"cpu_high", "mem_high"}, 0, nil, nil, noAvg)
+	text := report.TextReport(snap, []string{"cpu_high", "mem_high"}, nil, noAvg)
 	if !strings.Contains(text, "cpu_high") || !strings.Contains(text, "mem_high") {
 		t.Errorf("TextReport should list firing rules, got:\n%s", text)
 	}
@@ -72,7 +72,7 @@ func TestTextReportWithAvg(t *testing.T) {
 		CPU: map[int]*float64{1: &cpu1, 15: nil},
 		Mem: map[int]*float64{1: &mem1, 15: nil},
 	}
-	text := report.TextReport(snap, nil, 0, nil, []int{1, 15}, avg)
+	text := report.TextReport(snap, nil, []int{1, 15}, avg)
 	if !strings.Contains(text, "1m: 4.5%") {
 		t.Errorf("TextReport should contain 1m avg, got:\n%s", text)
 	}

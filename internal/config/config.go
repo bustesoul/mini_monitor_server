@@ -12,12 +12,12 @@ type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Collector CollectorConfig `yaml:"collector"`
 	Storage   StorageConfig   `yaml:"storage"`
+	History   HistoryConfig   `yaml:"history"`
 	Network   NetworkConfig   `yaml:"network"`
 	Disk      DiskConfig      `yaml:"disk"`
 	Alerts    AlertsConfig    `yaml:"alerts"`
 	Rules     []RuleConfig    `yaml:"rules"`
 	Notify    NotifyConfig    `yaml:"notify"`
-	Report    ReportConfig    `yaml:"report"`
 }
 
 type ServerConfig struct {
@@ -65,16 +65,16 @@ type NotifyConfig struct {
 	Telegram TelegramConfig `yaml:"telegram"`
 }
 
+type HistoryConfig struct {
+	DefaultDays int `yaml:"default_days"`
+}
+
 type TelegramConfig struct {
 	Enabled         bool     `yaml:"enabled"`
 	BotToken        string   `yaml:"bot_token"`
 	ChatID          string   `yaml:"chat_id"`
 	CommandsEnabled bool     `yaml:"commands_enabled"`
 	AllowedChatIDs  []string `yaml:"allowed_chat_ids"`
-}
-
-type ReportConfig struct {
-	IncludeHistoryDays int `yaml:"include_history_days"`
 }
 
 // Duration 支持 YAML 中 "60s", "5m" 等格式
@@ -129,14 +129,14 @@ func setDefaults(cfg *Config) {
 	if cfg.Storage.KeepDays == 0 {
 		cfg.Storage.KeepDays = 90
 	}
+	if cfg.History.DefaultDays == 0 {
+		cfg.History.DefaultDays = 7
+	}
 	if cfg.Alerts.DedupWindow.Duration == 0 {
 		cfg.Alerts.DedupWindow.Duration = 30 * time.Minute
 	}
 	if cfg.Alerts.RepeatInterval.Duration == 0 {
 		cfg.Alerts.RepeatInterval.Duration = 6 * time.Hour
-	}
-	if cfg.Report.IncludeHistoryDays == 0 {
-		cfg.Report.IncludeHistoryDays = 7
 	}
 }
 

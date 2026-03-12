@@ -114,7 +114,7 @@ func reportCmd() *cobra.Command {
 				}
 				fmt.Println(string(data))
 			} else {
-				fmt.Print(report.TextReport(snap, firingRules, cfg.Report.IncludeHistoryDays, nil, windows, avg))
+				fmt.Print(report.TextReport(snap, firingRules, windows, avg))
 			}
 			return nil
 		},

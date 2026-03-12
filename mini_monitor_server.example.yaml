@@ -60,9 +60,9 @@ notify:
     enabled: false
     bot_token: ""
     chat_id: ""
-    commands_enabled: true
+    commands_enabled: false
     allowed_chat_ids: []
 
-# Number of history days included in report output.
-report:
-  include_history_days: 7
+# Default number of days returned by history endpoints.
+history:
+  default_days: 7

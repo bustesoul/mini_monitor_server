@@ -55,3 +55,7 @@ mini_monitor_server version                                     # print version
 | Config  | `/etc/mini_monitor_server.yaml` |
 | Service | `/etc/systemd/system/mini_monitor_server.service` |
 | Data    | `/var/lib/mini_monitor_server/` |
+
+## Configuration Notes
+
+- `history.default_days`: default `days` value for `/history/disk` and `/history/net` when the query parameter is omitted

@@ -55,3 +55,7 @@ mini_monitor_server version                                     # 查看版本
 | 配置文件 | `/etc/mini_monitor_server.yaml` |
 | Service 文件 | `/etc/systemd/system/mini_monitor_server.service` |
 | 数据目录 | `/var/lib/mini_monitor_server/` |
+
+## 配置说明
+
+- `history.default_days`：`/history/disk` 与 `/history/net` 在未传 `days` 参数时的默认查询天数

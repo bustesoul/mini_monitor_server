@@ -33,7 +33,7 @@ func (c *ReportCmd) Execute(_ context.Context, args string) (string, error) {
 	} else {
 		avg = model.MetricsAvg{CPU: make(map[int]*float64), Mem: make(map[int]*float64)}
 	}
-	return report.TextReport(snap, c.engine.FiringRules(), 0, nil, windows, avg), nil
+	return report.TextReport(snap, c.engine.FiringRules(), windows, avg), nil
 }
 
 type CPUCmd struct {
