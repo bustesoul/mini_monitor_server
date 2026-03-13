@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,60 @@ func TestReportJSON(t *testing.T) {
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestMetricsPrometheus(t *testing.T) {
+	snap := &model.Snapshot{
+		Timestamp:           time.Unix(1710000000, 0),
+		Hostname:            "testhost",
+		CPU:                 model.CPUStat{UsagePercent: 25.0},
+		Memory:              model.MemoryStat{TotalBytes: 1024, UsedBytes: 512, UsedPercent: 50.0},
+		StorageDirSizeBytes: 4096,
+		Disks: []model.DiskStat{
+			{Mount: "/", TotalBytes: 2048, UsedBytes: 1024, UsedPercent: 50.0},
+		},
+		Networks: []model.NetworkStat{
+			{Iface: "eth0", RXBytes: 100, TXBytes: 200},
+		},
+	}
+	srv := newTestServer(t, snap)
+	resp := doRequest(t, srv, "/metrics")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/plain; version=0.0.4; charset=utf-8" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	for _, want := range []string{
+		"# HELP mini_monitor_up",
+		"mini_monitor_up 1",
+		"mini_monitor_cpu_usage_percent 25",
+		"mini_monitor_storage_dir_size_bytes 4096",
+		`mini_monitor_disk_used_bytes{mount="/"} 1024`,
+		`mini_monitor_network_receive_bytes_total{iface="eth0"} 100`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("metrics missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestMetricsWithoutSnapshot(t *testing.T) {
+	srv := newTestServer(t, nil)
+	resp := doRequest(t, srv, "/metrics")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "mini_monitor_up 0") {
+		t.Fatalf("unexpected body: %s", string(body))
 	}
 }
 

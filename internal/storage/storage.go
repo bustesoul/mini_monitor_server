@@ -307,3 +307,29 @@ func atomicWrite(path string, data []byte) error {
 	}
 	return os.Rename(tmp, path)
 }
+
+func DirSizeBytes(root string) (uint64, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if !info.IsDir() {
+		return uint64(info.Size()), nil
+	}
+
+	var total uint64
+	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info == nil || info.IsDir() {
+			return nil
+		}
+		total += uint64(info.Size())
+		return nil
+	})
+	return total, err
+}

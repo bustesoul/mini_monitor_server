@@ -123,3 +123,59 @@ func TestHistoryDefaultDaysWiredFromConfigToHTTP(t *testing.T) {
 		t.Fatalf("/history/net iface = %q, want %q", netEntries[0].Iface, recentNet.Iface)
 	}
 }
+
+func TestStartupMaintenanceCleansHistory(t *testing.T) {
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Listen: "127.0.0.1:0"},
+		Storage: config.StorageConfig{Dir: t.TempDir(), KeepDaysLocal: 7},
+	}
+
+	d, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	old := time.Now().AddDate(0, 0, -30)
+	recent := time.Now()
+	if err := d.store.AppendDiskHistory(model.DiskStat{Mount: "/", UsedPercent: 10}, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.store.AppendDiskHistory(model.DiskStat{Mount: "/", UsedPercent: 20}, recent); err != nil {
+		t.Fatal(err)
+	}
+
+	d.performStartupMaintenance()
+
+	entries, err := d.store.ReadDiskHistory(365)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	if entries[0].UsedPercent != 20 {
+		t.Fatalf("remaining UsedPercent = %v, want 20", entries[0].UsedPercent)
+	}
+}
+
+func TestBuildRuntimeRulesAddsStorageDirAlert(t *testing.T) {
+	cfg := &config.Config{
+		Collector: config.CollectorConfig{Interval: config.Duration{Duration: time.Minute}},
+		Storage:   config.StorageConfig{DirSizeAlertMB: 2048},
+		Rules: []config.RuleConfig{
+			{Name: "cpu_high", Type: "cpu_used_percent", Threshold: 90, Severity: "warning", For: config.Duration{Duration: 5 * time.Minute}},
+		},
+	}
+
+	rules := buildRuntimeRules(cfg)
+	if len(rules) != 2 {
+		t.Fatalf("len(rules) = %d, want 2", len(rules))
+	}
+	last := rules[len(rules)-1]
+	if last.Name != config.StorageDirAlertRuleName {
+		t.Fatalf("last rule name = %q, want %q", last.Name, config.StorageDirAlertRuleName)
+	}
+	if last.Type != "storage_dir_size_mb" || last.Threshold != 2048 {
+		t.Fatalf("unexpected storage rule: %+v", last)
+	}
+}

@@ -7,11 +7,11 @@ collector:
   interval: "60s"
   cpu_sample_window: "2s"
 
-# Local state and history storage directory and retention days.
+# Persistent storage for the full installation profile.
 storage:
   dir: "/var/lib/mini_monitor_server"
-  keep_days_local: 90
-  dir_size_alert_mb: 0
+  keep_days_local: 30
+  dir_size_alert_mb: 5120
   dir_size_check_interval: "10m"
 
 # Network interfaces to track and whether to reset counters on restart.
@@ -57,7 +57,6 @@ rules:
 
 # Notification backends.
 notify:
-  # Telegram alert delivery and allowed command chat IDs.
   telegram:
     enabled: false
     bot_token: ""
@@ -69,17 +68,17 @@ notify:
 history:
   default_days: 7
 
-# Optional VictoriaMetrics single-node + vmagent integration managed by mini_monitor_server.
+# VictoriaMetrics single-node + vmagent enabled for persistent full installation.
 integrations:
   victoriametrics:
-    enabled: false
+    enabled: true
     binary: "/usr/local/lib/mini_monitor_server/bin/victoria-metrics-prod"
     listen_addr: "127.0.0.1:8428"
     data_path: "/var/lib/mini_monitor_server/victoria-metrics"
     retention_days: 90
 
   vmagent:
-    enabled: false
+    enabled: true
     binary: "/usr/local/lib/mini_monitor_server/bin/vmagent"
     listen_addr: "127.0.0.1:8429"
     scrape_interval: "60s"

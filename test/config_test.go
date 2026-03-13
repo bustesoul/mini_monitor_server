@@ -18,9 +18,22 @@ collector:
   cpu_sample_window: "1s"
 storage:
   dir: "/tmp/test_monitor"
-  keep_days: 30
+  keep_days_local: 30
+  dir_size_alert_mb: 512
+  dir_size_check_interval: "15m"
 history:
   default_days: 14
+integrations:
+  victoriametrics:
+    enabled: true
+    listen_addr: "127.0.0.1:18428"
+    data_path: "/tmp/test_monitor/victoria"
+    retention_days: 60
+  vmagent:
+    enabled: true
+    listen_addr: "127.0.0.1:18429"
+    scrape_interval: "45s"
+    remote_write_url: "http://127.0.0.1:18428/api/v1/write"
 network:
   enabled: true
   interfaces: ["eth0"]
@@ -50,11 +63,23 @@ notify:
 	if cfg.Collector.Interval.Seconds() != 30 {
 		t.Errorf("Collector.Interval = %v, want 30s", cfg.Collector.Interval)
 	}
-	if cfg.Storage.KeepDays != 30 {
-		t.Errorf("Storage.KeepDays = %d, want 30", cfg.Storage.KeepDays)
+	if cfg.Storage.KeepDaysLocal != 30 {
+		t.Errorf("Storage.KeepDaysLocal = %d, want 30", cfg.Storage.KeepDaysLocal)
+	}
+	if cfg.Storage.DirSizeAlertMB != 512 {
+		t.Errorf("Storage.DirSizeAlertMB = %d, want 512", cfg.Storage.DirSizeAlertMB)
 	}
 	if cfg.History.DefaultDays != 14 {
 		t.Errorf("History.DefaultDays = %d, want 14", cfg.History.DefaultDays)
+	}
+	if !cfg.Integrations.VictoriaMetrics.Enabled {
+		t.Error("VictoriaMetrics should be enabled")
+	}
+	if cfg.Integrations.VMAgent.ScrapeInterval.Seconds() != 45 {
+		t.Errorf("VMAgent.ScrapeInterval = %v, want 45s", cfg.Integrations.VMAgent.ScrapeInterval)
+	}
+	if cfg.Integrations.VictoriaMetrics.RetentionDays != 60 {
+		t.Errorf("VictoriaMetrics.RetentionDays = %d, want 60", cfg.Integrations.VictoriaMetrics.RetentionDays)
 	}
 	if len(cfg.Rules) != 1 {
 		t.Fatalf("len(Rules) = %d, want 1", len(cfg.Rules))
@@ -83,11 +108,42 @@ notify:
 	if cfg.Collector.Interval.Seconds() != 60 {
 		t.Errorf("default Collector.Interval = %v, want 60s", cfg.Collector.Interval)
 	}
-	if cfg.Storage.KeepDays != 90 {
-		t.Errorf("default Storage.KeepDays = %d, want 90", cfg.Storage.KeepDays)
+	if cfg.Storage.KeepDaysLocal != 90 {
+		t.Errorf("default Storage.KeepDaysLocal = %d, want 90", cfg.Storage.KeepDaysLocal)
 	}
 	if cfg.History.DefaultDays != 7 {
 		t.Errorf("default History.DefaultDays = %d, want 7", cfg.History.DefaultDays)
+	}
+	if cfg.Integrations.VictoriaMetrics.Binary != "/usr/local/lib/mini_monitor_server/bin/victoria-metrics-prod" {
+		t.Errorf("default VictoriaMetrics.Binary = %q", cfg.Integrations.VictoriaMetrics.Binary)
+	}
+	if cfg.Integrations.VMAgent.Binary != "/usr/local/lib/mini_monitor_server/bin/vmagent" {
+		t.Errorf("default VMAgent.Binary = %q", cfg.Integrations.VMAgent.Binary)
+	}
+	if cfg.Integrations.VMAgent.RemoteWriteURL != "" {
+		t.Errorf("default VMAgent.RemoteWriteURL = %q, want empty", cfg.Integrations.VMAgent.RemoteWriteURL)
+	}
+	if cfg.Integrations.VictoriaMetrics.RetentionDays != 90 {
+		t.Errorf("default VictoriaMetrics.RetentionDays = %d, want 90", cfg.Integrations.VictoriaMetrics.RetentionDays)
+	}
+}
+
+func TestLoadConfigLegacyKeepDaysFallback(t *testing.T) {
+	yaml := `
+storage:
+  keep_days: 21
+rules: []
+notify:
+  telegram:
+    enabled: false
+`
+	path := writeTempFile(t, "legacy.yaml", yaml)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Storage.KeepDaysLocal != 21 {
+		t.Fatalf("KeepDaysLocal = %d, want 21", cfg.Storage.KeepDaysLocal)
 	}
 }
 
@@ -105,6 +161,26 @@ func TestValidateRules(t *testing.T) {
 					{Name: "cpu_high", Type: "cpu_used_percent", Threshold: 90, For: duration(5 * time.Minute), Severity: "warning"},
 				},
 			},
+		},
+		{
+			name: "valid storage dir size rule",
+			cfg: config.Config{
+				Collector: defaultCollector(),
+				Rules: []config.RuleConfig{
+					{Name: "storage_high", Type: "storage_dir_size_mb", Threshold: 1024, For: duration(5 * time.Minute), Severity: "warning"},
+				},
+			},
+		},
+		{
+			name: "reserved storage dir alert rule name",
+			cfg: config.Config{
+				Collector: defaultCollector(),
+				Storage:   config.StorageConfig{DirSizeAlertMB: 1024},
+				Rules: []config.RuleConfig{
+					{Name: config.StorageDirAlertRuleName, Type: "cpu_used_percent", Threshold: 90, For: duration(5 * time.Minute), Severity: "warning"},
+				},
+			},
+			wantErr: true,
 		},
 		{
 			name: "missing rule name",
@@ -164,6 +240,35 @@ func TestValidateRules(t *testing.T) {
 			cfg: config.Config{
 				Collector: defaultCollector(),
 				Notify:    config.NotifyConfig{Telegram: config.TelegramConfig{Enabled: true}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "victoriametrics enabled without retention days",
+			cfg: config.Config{
+				Collector: defaultCollector(),
+				Storage:   config.StorageConfig{Dir: "/tmp/test", KeepDaysLocal: 30},
+				Integrations: config.IntegrationsConfig{
+					VictoriaMetrics: config.VictoriaMetricsConfig{
+						Enabled:    true,
+						ListenAddr: "127.0.0.1:8428",
+						DataPath:   "/tmp/test/vm",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "vmagent enabled without remote write url",
+			cfg: config.Config{
+				Collector: defaultCollector(),
+				Integrations: config.IntegrationsConfig{
+					VMAgent: config.VMAgentConfig{
+						Enabled:        true,
+						ListenAddr:     "127.0.0.1:8429",
+						ScrapeInterval: duration(60 * time.Second),
+					},
+				},
 			},
 			wantErr: true,
 		},

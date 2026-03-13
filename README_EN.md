@@ -11,8 +11,9 @@ Single binary, minimal resource footprint, no database required.
 - System metrics collection: CPU, Memory, Disk, Network
 - Threshold-based alerting with configurable rules
 - Telegram bot integration for remote queries
-- Local HTTP API (`/report`, `/healthz`, `/history`)
+- Local HTTP API (`/report`, `/healthz`, `/history`, `/metrics`)
 - File-based storage, zero external dependencies
+- Optional managed `VictoriaMetrics single-node` and `vmagent` integration
 
 ## Install
 
@@ -21,14 +22,34 @@ Download the latest release tarball for your architecture from the repository Re
 ```bash
 tar -xzf mini_monitor_server-*.tar.gz
 cd mini_monitor_server-*/
-sudo ./install.sh install
+sudo ./install.sh install-basic
 ```
+
+The release tarball also bundles pinned `VictoriaMetrics single-node` and `vmagent` binaries, and the install script places them under `/usr/local/lib/mini_monitor_server/bin/`.
+
+Basic install:
+
+```bash
+sudo ./install.sh install-basic
+```
+
+Full install:
+
+```bash
+sudo ./install.sh install-full
+```
+
+- `install-basic`: installs the standard disk-backed config using `/var/lib/mini_monitor_server`
+- `install-full`: installs the full config with `VictoriaMetrics` and `vmagent` enabled, using `/var/lib/mini_monitor_server`
+- `install`: kept as a compatibility alias for `install-basic`
 
 ## Uninstall
 
 ```bash
 sudo ./install.sh uninstall
 ```
+
+`uninstall` removes binaries, config, service files, and `/var/lib/mini_monitor_server` so it works for either install mode.
 
 ## Manual Setup
 
@@ -59,3 +80,9 @@ mini_monitor_server version                                     # print version
 ## Configuration Notes
 
 - `history.default_days`: default `days` value for `/history/disk` and `/history/net` when the query parameter is omitted
+- `storage.keep_days_local`: retention days for local state/history files; legacy `storage.keep_days` is still accepted
+- `storage.dir_size_alert_mb`: alert threshold for the storage directory size in MB; `0` disables it, and enabling it auto-creates the built-in rule `storage_dir_size_high`
+- `storage.dir_size_check_interval`: sampling interval for storage directory size checks so large trees are not scanned too often
+- `integrations.victoriametrics` / `integrations.vmagent`: optional local time-series storage and scrape-forwarding integration managed by `mini_monitor_server`; disabled by default and auto-generates the `vmagent` scrape config when enabled
+- `integrations.victoriametrics.retention_days`: retention days for VictoriaMetrics data, independent from local file retention
+- Bundled third-party component versions are pinned in `third_party_versions.env` so they stay tied to this repository's git history

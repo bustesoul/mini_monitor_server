@@ -17,7 +17,7 @@ func TestRuleEngineNormalToFiring(t *testing.T) {
 	engine := rule.NewEngine(rules)
 
 	// 第一次超阈值：normal → pending
-	snap := makeSnap(85, 0, nil)
+	snap := makeSnap(85, 0, nil, 0)
 	t0 := time.Now()
 	events := engine.Evaluate(snap, t0)
 	if len(events) != 0 {
@@ -55,15 +55,15 @@ func TestRuleEngineRecovery(t *testing.T) {
 	now := time.Now()
 
 	// 超阈值 → pending
-	engine.Evaluate(makeSnap(0, 90, nil), now)
+	engine.Evaluate(makeSnap(0, 90, nil, 0), now)
 	// for=0 所以同一秒再评估应该 firing
-	events := engine.Evaluate(makeSnap(0, 90, nil), now)
+	events := engine.Evaluate(makeSnap(0, 90, nil, 0), now)
 	if len(events) != 1 || events[0].Status != "firing" {
 		t.Fatalf("expected firing, got %v", events)
 	}
 
 	// 恢复
-	events = engine.Evaluate(makeSnap(0, 70, nil), now.Add(time.Minute))
+	events = engine.Evaluate(makeSnap(0, 70, nil, 0), now.Add(time.Minute))
 	if len(events) != 1 || events[0].Status != "recovered" {
 		t.Fatalf("expected recovered, got %v", events)
 	}
@@ -79,11 +79,11 @@ func TestRuleEnginePendingBackToNormal(t *testing.T) {
 	now := time.Now()
 
 	// 超阈值 → pending
-	engine.Evaluate(makeSnap(85, 0, nil), now)
+	engine.Evaluate(makeSnap(85, 0, nil, 0), now)
 	assertState(t, engine, "cpu_high", "pending")
 
 	// 恢复到阈值以下 → normal（不产生 recovered 事件，因为从未 firing）
-	events := engine.Evaluate(makeSnap(70, 0, nil), now.Add(time.Minute))
+	events := engine.Evaluate(makeSnap(70, 0, nil, 0), now.Add(time.Minute))
 	if len(events) != 0 {
 		t.Fatalf("expected 0 events, got %d", len(events))
 	}
@@ -99,8 +99,8 @@ func TestRuleEngineDiskRule(t *testing.T) {
 	now := time.Now()
 
 	disks := []model.DiskStat{{Mount: "/", UsedPercent: 95}}
-	engine.Evaluate(makeSnap(0, 0, disks), now)
-	events := engine.Evaluate(makeSnap(0, 0, disks), now)
+	engine.Evaluate(makeSnap(0, 0, disks, 0), now)
+	events := engine.Evaluate(makeSnap(0, 0, disks, 0), now)
 	if len(events) != 1 || events[0].Rule != "disk_root" {
 		t.Fatalf("expected disk_root firing, got %v", events)
 	}
@@ -117,7 +117,7 @@ func TestRuleEngineFiringRules(t *testing.T) {
 	now := time.Now()
 
 	// 仅 CPU 超阈值
-	snap := makeSnap(80, 30, nil)
+	snap := makeSnap(80, 30, nil, 0)
 	engine.Evaluate(snap, now)
 	engine.Evaluate(snap, now)
 
@@ -142,9 +142,25 @@ func TestRuleEngineRestoreStates(t *testing.T) {
 	assertState(t, engine, "cpu_high", "firing")
 
 	// 恢复事件
-	events := engine.Evaluate(makeSnap(50, 0, nil), time.Now())
+	events := engine.Evaluate(makeSnap(50, 0, nil, 0), time.Now())
 	if len(events) != 1 || events[0].Status != "recovered" {
 		t.Fatalf("expected recovered after restore, got %v", events)
+	}
+}
+
+func TestRuleEngineStorageDirSizeRule(t *testing.T) {
+	rules := []config.RuleConfig{
+		{Name: "storage_high", Type: "storage_dir_size_mb", Threshold: 100, Severity: "warning",
+			For: config.Duration{Duration: 0}},
+	}
+	engine := rule.NewEngine(rules)
+	now := time.Now()
+
+	snap := makeSnap(0, 0, nil, 120*1024*1024)
+	engine.Evaluate(snap, now)
+	events := engine.Evaluate(snap, now)
+	if len(events) != 1 || events[0].Rule != "storage_high" {
+		t.Fatalf("expected storage_high firing, got %v", events)
 	}
 }
 
@@ -160,10 +176,11 @@ func assertState(t *testing.T, engine *rule.Engine, name, want string) {
 	}
 }
 
-func makeSnap(cpu, mem float64, disks []model.DiskStat) *model.Snapshot {
+func makeSnap(cpu, mem float64, disks []model.DiskStat, storageDirSizeBytes uint64) *model.Snapshot {
 	return &model.Snapshot{
-		CPU:    model.CPUStat{UsagePercent: cpu},
-		Memory: model.MemoryStat{UsedPercent: mem},
-		Disks:  disks,
+		CPU:                 model.CPUStat{UsagePercent: cpu},
+		Memory:              model.MemoryStat{UsedPercent: mem},
+		Disks:               disks,
+		StorageDirSizeBytes: storageDirSizeBytes,
 	}
 }

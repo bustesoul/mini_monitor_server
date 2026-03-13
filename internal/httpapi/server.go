@@ -39,6 +39,7 @@ func NewServer(addr string, getSnapshot func() *model.Snapshot, getMetricsAvg fu
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/report", s.handleReport)
 	mux.HandleFunc("/history/disk", s.handleDiskHistory)
 	mux.HandleFunc("/history/net", s.handleNetHistory)

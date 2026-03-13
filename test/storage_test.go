@@ -2,6 +2,8 @@ package test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -195,5 +197,26 @@ func TestStateJSON(t *testing.T) {
 	}
 	if !loaded.StartedAt.Equal(now) {
 		t.Errorf("JSON round-trip StartedAt mismatch")
+	}
+}
+
+func TestDirSizeBytes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("1234"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nested", "b.txt"), []byte("123456"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	size, err := storage.DirSizeBytes(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != 10 {
+		t.Fatalf("DirSizeBytes = %d, want 10", size)
 	}
 }

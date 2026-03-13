@@ -15,6 +15,7 @@ import (
 	"mini_monitor_server/internal/collector"
 	"mini_monitor_server/internal/config"
 	"mini_monitor_server/internal/httpapi"
+	"mini_monitor_server/internal/integration"
 	"mini_monitor_server/internal/metrics"
 	"mini_monitor_server/internal/model"
 	"mini_monitor_server/internal/notifier"
@@ -32,9 +33,11 @@ type Daemon struct {
 	alertMgr   *alert.Manager
 	notifiers  *notifier.Registry
 	httpSrv    *httpapi.Server
+	integrator *integration.Manager
 	tgBot      *telegram.Bot
 	state      *model.ServiceState
 	accum      *metricsAccumulator
+	dirSizer   *storageDirSizer
 	mu         sync.RWMutex
 }
 
@@ -43,14 +46,17 @@ func New(cfg *config.Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	rules := buildRuntimeRules(cfg)
 
 	d := &Daemon{
 		cfg:        cfg,
 		store:      store,
 		collectors: collector.NewRegistry(),
 		notifiers:  notifier.NewRegistry(),
-		engine:     rule.NewEngine(cfg.Rules),
+		engine:     rule.NewEngine(rules),
 		accum:      newMetricsAccumulator(store),
+		integrator: integration.NewManager(cfg),
+		dirSizer:   newStorageDirSizer(cfg.Storage.Dir, cfg.Storage.DirSizeCheckInterval.Duration),
 	}
 
 	// 注册采集器
@@ -95,11 +101,30 @@ func New(cfg *config.Config) (*Daemon, error) {
 	return d, nil
 }
 
+func buildRuntimeRules(cfg *config.Config) []config.RuleConfig {
+	rules := append([]config.RuleConfig(nil), cfg.Rules...)
+	if cfg.Storage.DirSizeAlertMB > 0 {
+		forDuration := cfg.Collector.Interval
+		if forDuration.Duration <= 0 {
+			forDuration.Duration = time.Minute
+		}
+		rules = append(rules, config.RuleConfig{
+			Name:      config.StorageDirAlertRuleName,
+			Type:      "storage_dir_size_mb",
+			Threshold: float64(cfg.Storage.DirSizeAlertMB),
+			For:       forDuration,
+			Severity:  "warning",
+		})
+	}
+	return rules
+}
+
 func (d *Daemon) Run(ctx context.Context) error {
 	// 加载或初始化状态
 	if err := d.initState(); err != nil {
 		return err
 	}
+	d.performStartupMaintenance()
 
 	slog.Info("daemon starting",
 		"collectors", d.collectors.List(),
@@ -109,6 +134,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.httpSrv.Start(); err != nil {
 		return fmt.Errorf("start http server: %w", err)
 	}
+	d.integrator.Start(ctx)
 
 	// 启动 Telegram Bot
 	if d.tgBot != nil {
@@ -185,6 +211,7 @@ func (d *Daemon) collectAndEvaluate(ctx context.Context) {
 	for _, err := range errs {
 		slog.Warn("collector error", "error", err)
 	}
+	snap.StorageDirSizeBytes = d.dirSizer.Size(now)
 
 	// 规则评估
 	events := d.engine.Evaluate(snap, now)
@@ -242,6 +269,10 @@ func (d *Daemon) setupDailyTimer() <-chan time.Time {
 	return time.After(time.Until(next))
 }
 
+func (d *Daemon) performStartupMaintenance() {
+	d.store.CleanHistory(d.cfg.Storage.KeepDaysLocal)
+}
+
 func (d *Daemon) dailySnapshot() {
 	slog.Info("taking daily snapshot")
 	d.mu.RLock()
@@ -268,7 +299,7 @@ func (d *Daemon) dailySnapshot() {
 	}
 
 	// 清理过期历史
-	d.store.CleanHistory(d.cfg.Storage.KeepDays)
+	d.store.CleanHistory(d.cfg.Storage.KeepDaysLocal)
 }
 
 // CollectOnce 执行一次采集并返回快照（供 CLI report 使用）
@@ -290,6 +321,7 @@ func (d *Daemon) CollectOnce(ctx context.Context) (*model.Snapshot, error) {
 
 func (d *Daemon) shutdown() {
 	d.accum.Flush()
+	d.integrator.Stop()
 	d.httpSrv.Stop()
 	if d.tgBot != nil {
 		d.tgBot.Stop()

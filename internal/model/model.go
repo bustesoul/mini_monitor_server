@@ -4,12 +4,13 @@ import "time"
 
 // Snapshot 当前采集快照
 type Snapshot struct {
-	Timestamp time.Time     `json:"timestamp"`
-	Hostname  string        `json:"hostname"`
-	CPU       CPUStat       `json:"cpu"`
-	Memory    MemoryStat    `json:"memory"`
-	Disks     []DiskStat    `json:"disks"`
-	Networks  []NetworkStat `json:"networks"`
+	Timestamp           time.Time     `json:"timestamp"`
+	Hostname            string        `json:"hostname"`
+	CPU                 CPUStat       `json:"cpu"`
+	Memory              MemoryStat    `json:"memory"`
+	Disks               []DiskStat    `json:"disks"`
+	Networks            []NetworkStat `json:"networks"`
+	StorageDirSizeBytes uint64        `json:"storage_dir_size_bytes,omitempty"`
 }
 
 type CPUStat struct {
@@ -68,7 +69,7 @@ type NetworkBaseline struct {
 
 // ServiceState 服务持久化状态
 type ServiceState struct {
-	StartedAt       time.Time                  `json:"started_at"`
+	StartedAt       time.Time                   `json:"started_at"`
 	NetworkBaseline map[string]NetworkBaseline  `json:"network_baseline"`
 	Rules           map[string]RuleRuntimeState `json:"rules"`
 	LastSnapshot    *Snapshot                   `json:"last_snapshot,omitempty"`

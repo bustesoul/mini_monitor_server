@@ -2,22 +2,26 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+const StorageDirAlertRuleName = "storage_dir_size_high"
+
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Collector CollectorConfig `yaml:"collector"`
-	Storage   StorageConfig   `yaml:"storage"`
-	History   HistoryConfig   `yaml:"history"`
-	Network   NetworkConfig   `yaml:"network"`
-	Disk      DiskConfig      `yaml:"disk"`
-	Alerts    AlertsConfig    `yaml:"alerts"`
-	Rules     []RuleConfig    `yaml:"rules"`
-	Notify    NotifyConfig    `yaml:"notify"`
+	Server       ServerConfig       `yaml:"server"`
+	Collector    CollectorConfig    `yaml:"collector"`
+	Storage      StorageConfig      `yaml:"storage"`
+	History      HistoryConfig      `yaml:"history"`
+	Network      NetworkConfig      `yaml:"network"`
+	Disk         DiskConfig         `yaml:"disk"`
+	Alerts       AlertsConfig       `yaml:"alerts"`
+	Rules        []RuleConfig       `yaml:"rules"`
+	Notify       NotifyConfig       `yaml:"notify"`
+	Integrations IntegrationsConfig `yaml:"integrations"`
 }
 
 type ServerConfig struct {
@@ -30,8 +34,11 @@ type CollectorConfig struct {
 }
 
 type StorageConfig struct {
-	Dir      string `yaml:"dir"`
-	KeepDays int    `yaml:"keep_days"`
+	Dir                  string   `yaml:"dir"`
+	KeepDaysLocal        int      `yaml:"keep_days_local"`
+	KeepDaysLegacy       int      `yaml:"keep_days"`
+	DirSizeAlertMB       uint64   `yaml:"dir_size_alert_mb"`
+	DirSizeCheckInterval Duration `yaml:"dir_size_check_interval"`
 }
 
 type NetworkConfig struct {
@@ -67,6 +74,27 @@ type NotifyConfig struct {
 
 type HistoryConfig struct {
 	DefaultDays int `yaml:"default_days"`
+}
+
+type IntegrationsConfig struct {
+	VictoriaMetrics VictoriaMetricsConfig `yaml:"victoriametrics"`
+	VMAgent         VMAgentConfig         `yaml:"vmagent"`
+}
+
+type VictoriaMetricsConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	Binary        string `yaml:"binary"`
+	ListenAddr    string `yaml:"listen_addr"`
+	DataPath      string `yaml:"data_path"`
+	RetentionDays int    `yaml:"retention_days"`
+}
+
+type VMAgentConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	Binary         string   `yaml:"binary"`
+	ListenAddr     string   `yaml:"listen_addr"`
+	ScrapeInterval Duration `yaml:"scrape_interval"`
+	RemoteWriteURL string   `yaml:"remote_write_url"`
 }
 
 type TelegramConfig struct {
@@ -126,8 +154,15 @@ func setDefaults(cfg *Config) {
 	if cfg.Storage.Dir == "" {
 		cfg.Storage.Dir = "/var/lib/mini_monitor_server"
 	}
-	if cfg.Storage.KeepDays == 0 {
-		cfg.Storage.KeepDays = 90
+	if cfg.Storage.KeepDaysLocal == 0 {
+		if cfg.Storage.KeepDaysLegacy > 0 {
+			cfg.Storage.KeepDaysLocal = cfg.Storage.KeepDaysLegacy
+		} else {
+			cfg.Storage.KeepDaysLocal = 90
+		}
+	}
+	if cfg.Storage.DirSizeCheckInterval.Duration == 0 {
+		cfg.Storage.DirSizeCheckInterval.Duration = 10 * time.Minute
 	}
 	if cfg.History.DefaultDays == 0 {
 		cfg.History.DefaultDays = 7
@@ -138,6 +173,30 @@ func setDefaults(cfg *Config) {
 	if cfg.Alerts.RepeatInterval.Duration == 0 {
 		cfg.Alerts.RepeatInterval.Duration = 6 * time.Hour
 	}
+	if cfg.Integrations.VictoriaMetrics.Binary == "" {
+		cfg.Integrations.VictoriaMetrics.Binary = "/usr/local/lib/mini_monitor_server/bin/victoria-metrics-prod"
+	}
+	if cfg.Integrations.VictoriaMetrics.ListenAddr == "" {
+		cfg.Integrations.VictoriaMetrics.ListenAddr = "127.0.0.1:8428"
+	}
+	if cfg.Integrations.VictoriaMetrics.DataPath == "" {
+		cfg.Integrations.VictoriaMetrics.DataPath = cfg.Storage.Dir + "/victoria-metrics"
+	}
+	if cfg.Integrations.VictoriaMetrics.RetentionDays == 0 {
+		cfg.Integrations.VictoriaMetrics.RetentionDays = cfg.Storage.KeepDaysLocal
+	}
+	if cfg.Integrations.VMAgent.Binary == "" {
+		cfg.Integrations.VMAgent.Binary = "/usr/local/lib/mini_monitor_server/bin/vmagent"
+	}
+	if cfg.Integrations.VMAgent.ListenAddr == "" {
+		cfg.Integrations.VMAgent.ListenAddr = "127.0.0.1:8429"
+	}
+	if cfg.Integrations.VMAgent.ScrapeInterval.Duration == 0 {
+		cfg.Integrations.VMAgent.ScrapeInterval.Duration = cfg.Collector.Interval.Duration
+	}
+	if cfg.Integrations.VMAgent.RemoteWriteURL == "" && cfg.Integrations.VictoriaMetrics.Enabled {
+		cfg.Integrations.VMAgent.RemoteWriteURL = "http://" + normalizeListenAddr(cfg.Integrations.VictoriaMetrics.ListenAddr) + "/api/v1/write"
+	}
 }
 
 // Validate 校验配置合法性
@@ -147,6 +206,12 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Collector.CPUSampleWindow.Duration < 100*time.Millisecond {
 		return fmt.Errorf("collector.cpu_sample_window must be >= 100ms")
+	}
+	if cfg.Integrations.VMAgent.ScrapeInterval.Duration > 0 && cfg.Integrations.VMAgent.ScrapeInterval.Duration < time.Second {
+		return fmt.Errorf("integrations.vmagent.scrape_interval must be >= 1s")
+	}
+	if cfg.Storage.DirSizeCheckInterval.Duration > 0 && cfg.Storage.DirSizeCheckInterval.Duration < time.Second {
+		return fmt.Errorf("storage.dir_size_check_interval must be >= 1s")
 	}
 	if cfg.Disk.SampleDailyAt != "" {
 		if _, err := time.Parse("15:04", cfg.Disk.SampleDailyAt); err != nil {
@@ -167,7 +232,7 @@ func Validate(cfg *Config) error {
 		}
 		ruleNames[r.Name] = struct{}{}
 		switch r.Type {
-		case "cpu_used_percent", "memory_used_percent", "disk_used_percent":
+		case "cpu_used_percent", "memory_used_percent", "disk_used_percent", "storage_dir_size_mb":
 		default:
 			return fmt.Errorf("rules[%d].type %q is unsupported", i, r.Type)
 		}
@@ -179,7 +244,10 @@ func Validate(cfg *Config) error {
 				return fmt.Errorf("rules[%d].mount %q is not configured in disk.mounts", i, r.Mount)
 			}
 		}
-		if r.Threshold <= 0 || r.Threshold > 100 {
+		if r.Threshold <= 0 {
+			return fmt.Errorf("rules[%d].threshold must be > 0", i)
+		}
+		if r.Type != "storage_dir_size_mb" && r.Threshold > 100 {
 			return fmt.Errorf("rules[%d].threshold must be in (0, 100]", i)
 		}
 		if r.For.Duration <= 0 {
@@ -187,6 +255,11 @@ func Validate(cfg *Config) error {
 		}
 		if r.Severity == "" {
 			return fmt.Errorf("rules[%d].severity is required", i)
+		}
+	}
+	if cfg.Storage.DirSizeAlertMB > 0 {
+		if _, exists := ruleNames[StorageDirAlertRuleName]; exists {
+			return fmt.Errorf("rules.%s is reserved when storage.dir_size_alert_mb is enabled", StorageDirAlertRuleName)
 		}
 	}
 	if cfg.Notify.Telegram.Enabled {
@@ -200,5 +273,35 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("notify.telegram.allowed_chat_ids is required when commands are enabled")
 		}
 	}
+	if cfg.Integrations.VictoriaMetrics.Enabled {
+		if cfg.Integrations.VictoriaMetrics.ListenAddr == "" {
+			return fmt.Errorf("integrations.victoriametrics.listen_addr is required when enabled")
+		}
+		if cfg.Integrations.VictoriaMetrics.DataPath == "" {
+			return fmt.Errorf("integrations.victoriametrics.data_path is required when enabled")
+		}
+		if cfg.Integrations.VictoriaMetrics.RetentionDays <= 0 {
+			return fmt.Errorf("integrations.victoriametrics.retention_days must be > 0 when enabled")
+		}
+	}
+	if cfg.Integrations.VMAgent.Enabled {
+		if cfg.Integrations.VMAgent.ListenAddr == "" {
+			return fmt.Errorf("integrations.vmagent.listen_addr is required when enabled")
+		}
+		if cfg.Integrations.VMAgent.RemoteWriteURL == "" {
+			return fmt.Errorf("integrations.vmagent.remote_write_url is required when enabled")
+		}
+	}
 	return nil
+}
+
+func normalizeListenAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "::" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }

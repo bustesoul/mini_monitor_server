@@ -134,6 +134,8 @@ func extractValue(snap *model.Snapshot, rule config.RuleConfig) float64 {
 				return d.UsedPercent
 			}
 		}
+	case "storage_dir_size_mb":
+		return float64(snap.StorageDirSizeBytes) / (1024 * 1024)
 	}
 	return 0
 }
