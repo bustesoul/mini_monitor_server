@@ -39,49 +39,79 @@ jobs:
 
       - name: Test
         if: steps.check.outputs.exists == 'false'
-        run: go test ./...
+        run: CGO_ENABLED=0 go test ./...
 
       - name: Build
         if: steps.check.outputs.exists == 'false'
         run: |
           VERSION="${{ steps.meta.outputs.VERSION }}"
           LDFLAGS="-s -w -X main.version=${VERSION}"
+          BUILD_TAGS="osusergo netgo"
 
-          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o build/amd64/mini_monitor_server ./cmd/mini_monitor_server
-          GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o build/arm64/mini_monitor_server ./cmd/mini_monitor_server
+          for arch in amd64 arm64; do
+            mkdir -p "build/${arch}"
+            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
+              go build \
+                -trimpath \
+                -tags "${BUILD_TAGS}" \
+                -ldflags "${LDFLAGS}" \
+                -o "build/${arch}/mini_monitor_server" \
+                ./cmd/mini_monitor_server
+          done
 
-      - name: Download bundled VictoriaMetrics binaries
+      - name: Setup Go For VictoriaMetrics
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: Build bundled VictoriaMetrics binaries
         if: steps.check.outputs.exists == 'false'
         run: |
           . ./third_party_versions.env
 
-          download_vm_component() {
+          build_vm_component() {
             arch="$1"
-            archive_name="$2"
-            target_name="$3"
-            archive_path="$RUNNER_TEMP/${archive_name}"
-            extract_dir="$RUNNER_TEMP/extract-${arch}-${target_name}"
+            source_dir="$RUNNER_TEMP/victoriametrics-src-${arch}"
 
-            curl -fL "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VICTORIAMETRICS_VERSION}/${archive_name}" -o "${archive_path}"
-            rm -rf "${extract_dir}"
-            mkdir -p "${extract_dir}"
-            tar -xzf "${archive_path}" -C "${extract_dir}"
+            rm -rf "${source_dir}"
+            git clone --branch "${VICTORIAMETRICS_VERSION}" --depth 1 \
+              https://github.com/VictoriaMetrics/VictoriaMetrics.git "${source_dir}"
 
-            binary_path="$(find "${extract_dir}" -type f \( -name "${target_name}" -o -name "${target_name}-prod" \) | head -n 1)"
-            if [[ -z "${binary_path}" ]]; then
-              echo "failed to find ${target_name} in ${archive_name}" >&2
-              exit 1
-            fi
+            (
+              cd "${source_dir}"
+              CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" make victoria-metrics-pure vmagent-pure
+            )
 
             mkdir -p "build/${arch}/third_party"
-            cp "${binary_path}" "build/${arch}/third_party/${target_name}"
-            chmod +x "build/${arch}/third_party/${target_name}"
+
+            cp "${source_dir}/bin/victoria-metrics-pure" "build/${arch}/third_party/victoria-metrics-prod"
+            cp "${source_dir}/bin/vmagent-pure" "build/${arch}/third_party/vmagent"
+            chmod +x "build/${arch}/third_party/victoria-metrics-prod" "build/${arch}/third_party/vmagent"
           }
 
-          download_vm_component amd64 "victoria-metrics-linux-amd64-${VICTORIAMETRICS_VERSION}.tar.gz" "victoria-metrics-prod"
-          download_vm_component amd64 "vmutils-linux-amd64-${VICTORIAMETRICS_VERSION}.tar.gz" "vmagent"
-          download_vm_component arm64 "victoria-metrics-linux-arm64-${VICTORIAMETRICS_VERSION}.tar.gz" "victoria-metrics-prod"
-          download_vm_component arm64 "vmutils-linux-arm64-${VICTORIAMETRICS_VERSION}.tar.gz" "vmagent"
+          build_vm_component amd64
+          build_vm_component arm64
+
+      - name: Verify static binaries
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          verify_static_binary() {
+            bin="$1"
+            info="$(file "${bin}")"
+            echo "${info}"
+            if [[ "${info}" != *"statically linked"* ]]; then
+              echo "binary is not statically linked: ${bin}" >&2
+              exit 1
+            fi
+          }
+
+          for arch in amd64 arm64; do
+            verify_static_binary "build/${arch}/mini_monitor_server"
+            verify_static_binary "build/${arch}/third_party/victoria-metrics-prod"
+            verify_static_binary "build/${arch}/third_party/vmagent"
+          done
 
       - name: Package
         if: steps.check.outputs.exists == 'false'
@@ -89,7 +119,7 @@ jobs:
           VERSION="${{ steps.meta.outputs.VERSION }}"
 
           for arch in amd64 arm64; do
-            dir="mini_monitor_server-${VERSION}-linux-${arch}"
+            dir="mini_monitor_server-${VERSION}-linux-musl-${arch}"
             mkdir -p "dist/${dir}"
 
             cp "build/${arch}/mini_monitor_server"         "dist/${dir}/"
